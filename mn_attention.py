@@ -99,36 +99,38 @@ def xd(x,N,M,eps):
         xds.append(xd)
     return xds
 
-def calcJ(xds,x,f):
-    return np.array([[f(d)-x for d in xd ] for xd in xds])
+def calcJ(xds,x,f,eps):
+    return np.array([[(f(d)-x)/eps for d in xd ] for xd in xds])
 
-def calc_lyap(W,x,M=7,N=3,L=20,attentionLnum=10,FNNnum=1,beta=2,eps=1e-4,show=False,th=0):
+def calc_lyap(W,x,M=7,N=3,L=20,attentionLnum=10,FNNnum=1,beta=2,eps=1e-4,show=False,th=0,tiny=1e-300):
     NM=N*M
-    lyap=0 
+    Q = np.eye(NM)
+    lyap_sum = np.zeros(NM)
     #log|δ0|=|log√∑^{NM}ε^2=|log√∑^{NM}ε^2|=0.5*|log(NM)+log(ε^2)|=0.5*|log(NM)|+2*|log(ε)|
-    logeps=0.5*(np.log(NM)+2*np.log(eps))
     for l in range(L):
         for i in range(FNNnum):
             xds=xd(x,N,M,eps)
-            x=FNN(W,x,beta,th)
-            J=np.array([[FNN(W,d,beta,th)-x for d in xd ] for xd in xds])
-            eigval,v=linalg.eig(J.reshape(NM,NM))
+            #xds=xd(x,N,M,-eps)
+            x1=FNN(W,x,beta,th)
+            J=calcJ(xds,x1,lambda xx:FNN(W,xx,beta,th),eps).reshape(NM,NM)
             #log(|J|/|δ|)=log(|J|)-log|δ|
-            lyap += np.log(np.abs(eigval))-logeps
+            Q, R = linalg.qr(J @ Q, mode='economic')
+            lyap_sum += np.log(np.maximum(np.abs(np.diag(R)), tiny))
+            x=x1
         for i in range(attentionLnum):
             xds=xd(x,N,M,eps)
-            x=selfattention(x)
-            J=np.array([[selfattention(d)-x for d in xd ] for xd in xds])
-            eigval,v=linalg.eig(J.reshape(NM,NM)) 
-            lyap += np.log(np.abs(eigval))-logeps
-
-    lyap=lyap/(L*(FNNnum+attentionLnum))
+            x1=selfattention(x)
+            J=calcJ(xds,x,selfattention,eps).reshape(NM,NM)
+            Q, R = linalg.qr(J @ Q, mode='economic')
+            lyap_sum += np.log(np.maximum(np.abs(np.diag(R)), tiny))
+            x=x1
+    lyap_sum=lyap_sum/(L*(FNNnum+attentionLnum))
     if(show):
         print(f"M={M},N={N},L={L},attentionL={attentionLnum}")
-        print(lyap)
+        print(lyap_sum)
         print("last x",x)
         plot_all(x)
-    return x,lyap
+    return x,lyap_sum
 
 def calc_lyaps(num=1,filename="lyap.csv"):
     L=100
