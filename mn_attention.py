@@ -132,6 +132,13 @@ def calc_lyap(W,x,M=7,N=3,L=20,attentionLnum=10,FNNnum=1,beta=2,eps=1e-4,show=Fa
         plot_all(x)
     return x,lyap_sum
 
+def plot_lyaps(filename="lyap.csv"):
+    import pandas as pd
+    import seaborn as sns
+    df=pd.read_csv(filename)
+    pg = sns.pairplot(df)    
+    pg.savefig('lyaps_pair.png')
+
 def calc_lyaps(num=1,filename="lyap.csv"):
     L=100
     with open(filename,"w") as fp:
@@ -140,12 +147,14 @@ def calc_lyaps(num=1,filename="lyap.csv"):
             for M in [3,5,10]:
                 W=r01((N,N))
                 for attentionLnum in [0,3,10]:
-                    for FNNnum in [3,10]:
+                    for FNNnum in [1,3,10,12]:
                         for n in range(num):
                             th=r01(M)
                             x=r01((N,M))
                             x,lyap=calc_lyap(W,x,M,N,L,attentionLnum,FNNnum,th)
                             dprint(f"{N},{M},{attentionLnum},{FNNnum},{np.max(lyap)},{np.min(lyap)}",fp)
+    plot_lyaps(filename)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="stability of Attention+FNN against Magic Number ±7")
