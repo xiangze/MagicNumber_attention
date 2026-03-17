@@ -101,15 +101,11 @@ def calcxs(params,func,num=100,W=None,showhist=True):
     return xss
 
 def xd(x,N,M,eps):
-    xds=[]
-    for j in range(M):
-        xd=[]
-        for i in range(N):
-            d=x.copy()
-            d[i,j]+=eps
-            xd.append(d)
-        xds.append(xd)
-    return xds
+    def p(i,j):
+        d=x.copy()
+        d[i,j]+=eps
+        return d
+    return [[p(i,j) for i in range(N) ] for j in range(M)]
 
 def calcJ(xds,x,f,eps):
     return np.array([[(f(d)-x)/eps for d in xd ] for xd in xds])
@@ -198,7 +194,7 @@ if __name__ == "__main__":
         if(args.resnet):        
             plot_lyaps(filename="lyaps_Resnet.csv")
         else:
-            plot_lyaps(filename="lyaps.csv")
+            plot_lyaps(filename=f"lyaps.csv")
     elif(args.resnet):
         xs=calcxs(args,Resnet,args.num)
     else:
