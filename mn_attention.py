@@ -124,19 +124,6 @@ def calcJ_autograd(f, x):
     return J.detach()
 
 # ============================================================
-# 数値微分版（旧版・比較用に残す）
-# ============================================================
-def xd(x,N,M,eps):
-    def p(i,j):
-        d=x.detach()
-        d[i,j]+=eps
-        return d
-    return [[p(i,j) for i in range(N) ] for j in range(M)]
-
-def calcJ_numerical(xds, x, f, eps):
-    return torch.tensor([[(f(d) - x).numpy() / eps for d in xd_row] for xd_row in xds])
-
-# ============================================================
 # リアプノフ指数計算 (autograd版)
 # ============================================================
 def calc_lyap(W, x, func=FNN, calcJ=calcJ_autograd, M=7, N=3, L=20, attentionLnum=10, FNNnum=1,
@@ -173,17 +160,34 @@ def calc_lyap_autograd(W, x, func=FNN, M=7, N=3, L=20, attentionLnum=10, FNNnum=
               beta=2, eps=1e-4, show=False, th=0, tiny=1e-300):
     return calc_lyap(W, x, func,calcJ_autograd, M, N, L, attentionLnum, FNNnum,
                     beta, eps, show ,th, tiny)
+
+# ============================================================
+# 数値微分版（旧版・比較用に残す）
+# ============================================================
+def xd(x,N,M,eps):
+    def p(i,j):
+        d=x.detach()
+        d[i,j]+=eps
+        return d
+    return [[p(i,j) for i in range(N) ] for j in range(M)]
+
+def calcJ_numerical(xds, x, f, eps):
+    # for xd_row in xds:
+    #     for d in xd_row:
+    #         print(d)
+    # f(d)
+    return torch.tensor([[(f(d) - x).numpy() / eps for d in xd_row] for xd_row in xds])
+
 # ============================================================
 # リアプノフ指数計算 (数値微分版・比較用)
 # ============================================================
 def calc_lyap_numerical(W, x, func=FNN, M=7, N=3, L=20, attentionLnum=10, FNNnum=1,
                         beta=2, eps=1e-4, show=False, th=0, tiny=1e-300):
     NM=N*M
-    def calcJ(ff,x):
+    def calcJ(f,x):
             xds_list = xd(x, N, M, eps)
-            func=lambda xx: ff(W, xx, beta, th)
-            x1 = ff(x)
-            return calcJ_numerical(xds_list, x1, func, eps).reshape(NM, NM)
+            x1 = f(x)
+            return calcJ_numerical(xds_list, x1, f, eps).reshape(NM, NM)
     return calc_lyap(W, x, func,calcJ,
                     M, N, L, attentionLnum, FNNnum,
                     beta, eps, show ,th, tiny)
