@@ -20,7 +20,7 @@ from tqdm import tqdm
 from transformers import AlbertForSequenceClassification, AlbertTokenizer
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from datasets import load_dataset
-
+import plots_plotly as pl
 # -------------------------------------------------------------------
 # 共通ユーティリティ
 # -------------------------------------------------------------------
@@ -210,34 +210,25 @@ def evaluate_accuracy(model, dataloader):
             total   += len(lbl)
     return correct / total
 
-
 def plot_experiment1(history, n_epochs):
     epochs = range(1, n_epochs + 1)
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
 
     axes[0].plot(epochs, history["train_loss"], "b-o")
-    axes[0].set_title("Training Loss (random labels)")
-    axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Loss")
+    pl._set_ax(axes[0], "Training Loss (random labels)", "Epoch", "Loss")
 
     axes[1].plot(epochs, history["val_acc_random"], "r-o", label="random label acc")
     axes[1].plot(epochs, history["val_acc_true"],   "g-o", label="true label acc")
-    axes[1].axhline(0.5, color="gray", linestyle="--", label="chance level")
-    axes[1].set_title("Accuracy: Random vs True Labels")
-    axes[1].set_xlabel("Epoch"); axes[1].legend()
+    pl._ref_hline(axes[1], 0.5, "chance level")
+    pl._set_ax(axes[1], "Accuracy: Random vs True Labels", "Epoch", legend=True)
 
     axes[2].plot(epochs, history["lyapunov"], "m-o")
-    axes[2].axhline(0.0, color="gray", linestyle="--", label="λ=0 (Edge of Chaos)")
-    axes[2].set_title("Lyapunov Exponent λ")
-    axes[2].set_xlabel("Epoch"); axes[2].set_ylabel("λ"); axes[2].legend()
+    pl._ref_hline(axes[2], 0.0, "λ=0 (Edge of Chaos)")
+    pl._set_ax(axes[2], "Lyapunov Exponent λ", "Epoch", "λ", legend=True)
 
-    plt.suptitle("Exp1: Random Label Training\n"
-                 "Hypothesis: λ<0 (stable) while generalization error remains high",
-                 fontsize=11)
-    plt.tight_layout()
-    plt.savefig("exp1_random_labels.png", dpi=120, bbox_inches="tight")
-    print("  → Saved: exp1_random_labels.png")
-    plt.close()
-
+    pl._save_fig(fig, "exp1_random_labels.png",
+              "Exp1: Random Label Training\n"
+              "Hypothesis: λ<0 (stable) while generalization error remains high")
 
 # -------------------------------------------------------------------
 # Exp2: Token Collapse の誘導（softmax温度操作）
@@ -388,33 +379,26 @@ def experiment2_token_collapse(temperatures=None, n_samples=200):
     plot_experiment2(results)
     return results
 
-
 def plot_experiment2(results):
     T_vals = results["temperature"]
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     axes[0].semilogx(T_vals, results["eff_rank_mean"], "b-o", label="mean (all layers)")
     axes[0].semilogx(T_vals, results["eff_rank_last"], "r-s", label="last layer")
-    axes[0].axvline(1.0, color="gray", linestyle="--", label="T=1 (baseline)")
-    axes[0].set_title("Effective Rank vs Temperature")
-    axes[0].set_xlabel("Temperature (log scale)"); axes[0].set_ylabel("Effective Rank")
-    axes[0].legend()
+    pl._ref_vline(axes[0], 1.0, "T=1 (baseline)", color="gray")
+    pl._set_ax(axes[0], "Effective Rank vs Temperature",
+            "Temperature (log scale)", "Effective Rank", legend=True)
 
     axes[1].semilogx(T_vals, results["lyapunov"], "m-o")
-    axes[1].axhline(0.0, color="gray", linestyle="--", label="λ=0")
-    axes[1].axvline(1.0, color="gray", linestyle=":")
-    axes[1].set_title("Lyapunov Exponent vs Temperature")
-    axes[1].set_xlabel("Temperature (log scale)"); axes[1].set_ylabel("λ")
-    axes[1].legend()
+    pl._ref_hline(axes[1], 0.0, "λ=0")
+    pl._ref_vline(axes[1], 1.0, label=None, color="gray", ls=":")
+    pl._set_ax(axes[1], "Lyapunov Exponent vs Temperature",
+            "Temperature (log scale)", "λ", legend=True)
 
-    plt.suptitle("Exp2: Token Collapse via Softmax Temperature\n"
-                 "Hypothesis: Low T → rank collapse → λ≪0",
-                 fontsize=11)
-    plt.tight_layout()
-    plt.savefig("exp2_token_collapse.png", dpi=120, bbox_inches="tight")
-    print("  → Saved: exp2_token_collapse.png")
-    plt.close()
-
+    pl._save_fig(fig, "exp2_token_collapse.png",
+              "Exp2: Token Collapse via Softmax Temperature\n"
+              "Hypothesis: Low T → rank collapse → λ≪0")
+    
 
 # -------------------------------------------------------------------
 # Exp3: Edge of Chaos 探索（学習率スキャン）
@@ -486,6 +470,44 @@ def analyze_edge_of_chaos_counterexamples(all_results, lambda_threshold=0.05):
         print("  No clear counterexamples found with current settings. "
               "Try random labels + edge of chaos scan (Exp1 × Exp3 combination).")
 
+def plot_experiment3(all_results, lr_list, n_epochs):
+    epochs = range(1, n_epochs + 1)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    colors = [plt.get_cmap("viridis")(i / len(lr_list)) for i in range(len(lr_list))]
+
+    for (lr, records), color in zip(all_results.items(), colors):
+        label = f"lr={lr:.0e}"
+        axes[0].plot(epochs, [r["lyapunov"] for r in records], "-o", color=color, label=label)
+        axes[1].plot(epochs, [r["val_acc"]  for r in records], "-o", color=color, label=label)
+
+    pl._ref_hline(axes[0], 0.0, "λ=0 (Edge)", color="black")
+    pl._set_ax(axes[0], "Lyapunov Exponent λ per Epoch", "Epoch", "λ",
+            legend=True, legend_kw={"fontsize": 7})
+
+    pl._ref_hline(axes[1], 0.5, "chance level")
+    pl._set_ax(axes[1], "Validation Accuracy per Epoch", "Epoch", "Accuracy",
+            legend=True, legend_kw={"fontsize": 7})
+
+    pl._save_fig(fig, "exp3_edge_of_chaos.png",
+              "Exp3: Edge of Chaos Search via Learning Rate Scan\n"
+              "Key question: Is λ≈0 sufficient for good generalization?")
+
+    # λ vs val_acc 散布図
+    fig, ax = plt.subplots(figsize=(8, 6))
+    cmap = plt.get_cmap("Set1")
+    for i, lr in enumerate(lr_list):
+        mask = [s == lr for s in scatter_data["lr"]]
+        idx  = [j for j, m in enumerate(mask) if m]
+        ax.scatter([scatter_data["lyapunov"][j] for j in idx],
+                   [scatter_data["val_acc"][j]  for j in idx],
+                   label=f"lr={lr:.0e}", s=80, color=cmap(i))
+
+    pl._ref_vline(ax, 0.0, "λ=0 (Edge of Chaos)")
+    pl._ref_hline(ax, 0.5, "chance level")
+    pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
+               "(Trained on random labels)",
+            "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
+    pl._save_fig(fig, "exp_combined_counterexample.png", "")
 
 def plot_experiment3(all_results, lr_list, n_epochs):
     epochs = range(1, n_epochs + 1)

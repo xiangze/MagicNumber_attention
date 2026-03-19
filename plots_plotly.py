@@ -26,6 +26,54 @@ class ExperimentResult:
     extra: Dict = field(default_factory=dict)
 
 
+# ── 共通ヘルパー ──────────────────────────────────────────────
+def _ref_hline(ax, y, label, color="gray", ls="--"):
+    ax.axhline(y, color=color, linestyle=ls, label=label)
+
+def _ref_vline(ax, x, label, color="black", ls="--"):
+    ax.axvline(x, color=color, linestyle=ls, label=label)
+
+def _set_ax(ax, title, xlabel=None, ylabel=None, legend=False, legend_kw=None):
+    ax.set_title(title)
+    if xlabel: ax.set_xlabel(xlabel)
+    if ylabel: ax.set_ylabel(ylabel)
+    if legend: ax.legend(**(legend_kw or {}))
+
+def _scatter_annotate(ax, xs, ys, labels, **scatter_kw):
+    sc = ax.scatter(xs, ys, **scatter_kw)
+    for label, x, y in zip(labels, xs, ys):
+        ax.annotate(label, (x, y), textcoords="offset points", xytext=(5, 5), fontsize=8)
+    return sc
+
+def _plot_flatness_vs_acc(ax, results, c=None, cmap=None, **kw):
+    xs = [r.flatness_ratio for r in results]
+    ys = [r.val_acc        for r in results]
+    _scatter_annotate(ax, xs, ys, [r.label for r in results],
+                      c=c or "steelblue", cmap=cmap, s=150, zorder=5, **kw)
+    ax.axhline(0.5, color="gray", linestyle="--", label="chance")
+    ax.set_xlabel("Flatness Ratio φ(θ)")
+    ax.set_ylabel("Validation Accuracy")
+    ax.set_title("Flatness Ratio vs Generalization")
+
+def _plot_lyapunov_vs_flatness(ax, results, c=None, cmap=None, **kw):
+    xs = [r.lyapunov       for r in results]
+    ys = [r.flatness_ratio for r in results]
+    _scatter_annotate(ax, xs, ys, [r.label for r in results],
+                      c=c or "steelblue", cmap=cmap, s=150, zorder=5, **kw)
+    ax.axvline(0.0, color="black", linestyle="--", label="λ=0 (Edge of Chaos)")
+    ax.set_xlabel("Lyapunov Exponent λ")
+    ax.set_ylabel("Flatness Ratio φ(θ)")
+    ax.set_title("Lyapunov λ vs Flatness Ratio")
+    ax.legend()
+
+def _save_fig(fig, filename, suptitle):
+    fig.suptitle(suptitle, fontsize=11)
+    fig.tight_layout()
+    fig.savefig(filename, dpi=120, bbox_inches="tight")
+    print(f"  → Saved: {filename}")
+    plt.close(fig)
+
+
 # ──────────────────────────────────────────────
 # Exp A プロット
 # ──────────────────────────────────────────────
