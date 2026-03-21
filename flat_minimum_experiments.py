@@ -122,7 +122,6 @@ def get_loss_on_batch(model, batch, device):
 # ─────────────────────────────────────────────
 # Lanczosによる固有値近似
 # ─────────────────────────────────────────────
-
 def lanczos_eigenvalues(model, dataloader, n_eigs=50,
                         n_iter=None, device=DEVICE,
                         param_filter=None):
@@ -234,7 +233,6 @@ def power_iteration_eigenvalues(model, batch, params, k, device, n_power_iter=50
 
     return np.array(eigenvalues)
 
-
 # ─────────────────────────────────────────────
 # Lyapunov指数（前回実験から流用・簡略版）
 # ─────────────────────────────────────────────
@@ -252,8 +250,7 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4):
         log_rates = []
         h, hp = emb, emb_p
         encoder = model.albert.encoder
-        ext_mask = model.albert.get_extended_attention_mask(
-            attention_mask, input_ids.shape)
+        ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
 
         for _ in range(encoder.config.num_hidden_layers):
             layer = encoder.albert_layer_groups[0].albert_layers[0]
@@ -270,7 +267,6 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4):
             h, hp = out, out + diff
 
     return float(np.mean(log_rates)) if log_rates else float("nan")
-
 
 # ─────────────────────────────────────────────
 # 訓練ユーティリティ
@@ -457,8 +453,7 @@ def plot_B(results):
     # --- (1) バッチサイズ vs Flatness Ratio ---
     axes[0].semilogx(bs_vals, [r.flatness_ratio for r in results], "b-o", markersize=8)
     for bs, fr in zip(bs_vals, [r.flatness_ratio for r in results]):
-        axes[0].annotate(f"BS={bs}", (bs, fr),
-                         textcoords="offset points", xytext=(0, 8), ha="center")
+        axes[0].annotate(f"BS={bs}", (bs, fr),  textcoords="offset points", xytext=(0, 8), ha="center")
     axes[0].set(xlabel="Batch Size (log scale)", ylabel="Flatness Ratio φ(θ)",
                 title="Batch Size vs Flatness Ratio\n(Keskar 2017: large BS → sharp minimum)")
     # --- (2) Flatness Ratio vs Val Acc ---

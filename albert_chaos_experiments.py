@@ -98,20 +98,24 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4, layer_indi
         emb_perturbed = emb_output + noise
 
         log_expansion_rates = []
-        hidden      = emb_output
-        hidden_pert = emb_perturbed
 
         # ALBERTのEncoder層を順次通過（weight tying のため同一ブロックが繰り返される）
         encoder = model.albert.encoder
+        hidden = encoder.embedding_hidden_mapping_in(emb_output)
+        hidden_pert = encoder.embedding_hidden_mapping_in(emb_perturbed)
+
         for layer_idx in range(encoder.config.num_hidden_layers):
             layer = encoder.albert_layer_groups[0].albert_layers[0]
 
             # 拡張マスクを作成
-            ext_mask = model.albert.get_extended_attention_mask(
-                attention_mask, input_ids.shape
-            )
-
-            out_orig = layer(hidden,      ext_mask)[0]
+            ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
+            try:
+                out_orig = layer(hidden,      ext_mask)[0]
+            except  Exception as e:
+                print(e)
+                print("attention_mask",attention_mask.shape, input_ids.shape)
+                print("hidden",hidden.shape,"mask",ext_mask.shape)
+                exit()
             out_pert = layer(hidden_pert, ext_mask)[0]
 
             delta_before = (hidden_pert - hidden).norm(dim=-1).mean().item()
@@ -296,11 +300,10 @@ def measure_token_diversity(model, input_ids, attention_mask):
 
     effective_ranks = []
     with torch.no_grad():
-        hidden = model.albert.embeddings(input_ids)
+        emb_output = model.albert.embeddings(input_ids)  # (B, T, H)
         encoder = model.albert.encoder
-        ext_mask = model.albert.get_extended_attention_mask(
-            attention_mask, input_ids.shape
-        )
+        hidden = encoder.embedding_hidden_mapping_in(emb_output)
+        ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
 
         for _ in range(encoder.config.num_hidden_layers):
             layer = encoder.albert_layer_groups[0].albert_layers[0]
@@ -346,22 +349,19 @@ def experiment2_token_collapse(temperatures=None, n_samples=200):
 
     for T in temperatures:
         print(f"  Temperature T={T:.3f} ...", end=" ")
-
         # モデルを毎回クリーンに読み込む
-        model = AlbertForSequenceClassification.from_pretrained(
-            MODEL_NAME, num_labels=NUM_LABELS
-        ).to(DEVICE)
+        model = AlbertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS).to(DEVICE)
 
         # Query出力をスケールしてsoftmax温度を模擬
         original_query_forward = {}
         for i, layer_group in enumerate(model.albert.encoder.albert_layer_groups):
             for j, layer in enumerate(layer_group.albert_layers):
-                orig_fwd = layer.attention.attention.query.forward
+                orig_fwd = layer.attention.query.forward
                 scale = 1.0 / np.sqrt(T)
                 def make_patched(orig, s):
                     def patched(x): return orig(x) * s
                     return patched
-                layer.attention.attention.query.forward = make_patched(orig_fwd, scale)
+                layer.attention.query.forward = make_patched(orig_fwd, scale)
 
         eff_ranks = measure_token_diversity(model, input_ids, attention_masks)
         lya = estimate_lyapunov(model, input_ids[:4], attention_masks[:4])
@@ -492,53 +492,7 @@ def plot_experiment3(all_results, lr_list, n_epochs):
               "Exp3: Edge of Chaos Search via Learning Rate Scan\n"
               "Key question: Is λ≈0 sufficient for good generalization?")
 
-    # λ vs val_acc 散布図
-    fig, ax = plt.subplots(figsize=(8, 6))
-    cmap = plt.get_cmap("Set1")
-    for i, lr in enumerate(lr_list):
-        mask = [s == lr for s in scatter_data["lr"]]
-        idx  = [j for j, m in enumerate(mask) if m]
-        ax.scatter([scatter_data["lyapunov"][j] for j in idx],
-                   [scatter_data["val_acc"][j]  for j in idx],
-                   label=f"lr={lr:.0e}", s=80, color=cmap(i))
-
-    pl._ref_vline(ax, 0.0, "λ=0 (Edge of Chaos)")
-    pl._ref_hline(ax, 0.5, "chance level")
-    pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
-               "(Trained on random labels)",
-            "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
-    pl._save_fig(fig, "exp_combined_counterexample.png", "")
-
-def plot_experiment3(all_results, lr_list, n_epochs):
-    epochs = range(1, n_epochs + 1)
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    cmap = plt.get_cmap("viridis")
-    colors = [cmap(i / len(lr_list)) for i in range(len(lr_list))]
-
-    for (lr, records), color in zip(all_results.items(), colors):
-        lyas = [r["lyapunov"] for r in records]
-        accs = [r["val_acc"]  for r in records]
-        label = f"lr={lr:.0e}"
-        axes[0].plot(epochs, lyas, "-o", color=color, label=label)
-        axes[1].plot(epochs, accs, "-o", color=color, label=label)
-
-    axes[0].axhline(0.0, color="black", linestyle="--", linewidth=2, label="λ=0 (Edge)")
-    axes[0].set_title("Lyapunov Exponent λ per Epoch")
-    axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("λ"); axes[0].legend(fontsize=7)
-
-    axes[1].axhline(0.5, color="gray", linestyle="--", label="chance level")
-    axes[1].set_title("Validation Accuracy per Epoch")
-    axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Accuracy"); axes[1].legend(fontsize=7)
-
-    plt.suptitle("Exp3: Edge of Chaos Search via Learning Rate Scan\n"
-                 "Key question: Is λ≈0 sufficient for good generalization?",
-                 fontsize=11)
-    plt.tight_layout()
-    plt.savefig("exp3_edge_of_chaos.png", dpi=120, bbox_inches="tight")
-    print("  → Saved: exp3_edge_of_chaos.png")
-    plt.close()
-
+ 
 
 # -------------------------------------------------------------------
 # Exp1 × Exp3 複合実験：ランダムラベル + 学習率スキャン
@@ -589,6 +543,23 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
             scatter_data["val_acc"].append(val_acc)
             scatter_data["lr"].append(lr)
             print(f"    Epoch {epoch+1}: λ={lya:.4f} | val_acc(true)={val_acc:.3f}")
+   # λ vs val_acc 散布図
+    fig, ax = plt.subplots(figsize=(8, 6))
+    cmap = plt.get_cmap("Set1")
+    for i, lr in enumerate(lr_list):
+        mask = [s == lr for s in scatter_data["lr"]]
+        idx  = [j for j, m in enumerate(mask) if m]
+        ax.scatter([pl.scatter_data["lyapunov"][j] for j in idx],
+                   [scatter_data["val_acc"][j]  for j in idx],
+                   label=f"lr={lr:.0e}", s=80, color=cmap(i))
+
+    pl._ref_vline(ax, 0.0, "λ=0 (Edge of Chaos)")
+    pl._ref_hline(ax, 0.5, "chance level")
+    pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
+               "(Trained on random labels)",
+            "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
+    pl._save_fig(fig, "exp_combined_counterexample.png", "")
+
 
     # λ と val_acc の散布図
     fig, ax = plt.subplots(figsize=(8, 6))
