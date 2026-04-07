@@ -21,6 +21,7 @@ from transformers import AlbertForSequenceClassification, AlbertTokenizer
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from datasets import load_dataset
 import plots_plotly as pl
+import plotly.express as px
 # -------------------------------------------------------------------
 # 共通ユーティリティ
 # -------------------------------------------------------------------
@@ -549,7 +550,7 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
     for i, lr in enumerate(lr_list):
         mask = [s == lr for s in scatter_data["lr"]]
         idx  = [j for j, m in enumerate(mask) if m]
-        ax.scatter([pl.scatter_data["lyapunov"][j] for j in idx],
+        ax.scatter([scatter_data["lyapunov"][j] for j in idx],
                    [scatter_data["val_acc"][j]  for j in idx],
                    label=f"lr={lr:.0e}", s=80, color=cmap(i))
 
@@ -588,15 +589,12 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
 # -------------------------------------------------------------------
 # メイン実行
 # -------------------------------------------------------------------
-
 if __name__ == "__main__":
     print("ALBERT Chaos Experiments")
     print(f"Device: {DEVICE}")
     print("NOTE: Full runs require GPU. Reduce n_samples/n_epochs for quick testing.\n")
-
     # --- クイックテスト用設定（本番は値を増やす） ---
     QUICK = True  # Falseにすると本格実験
-
     if QUICK:
         print("[QUICK MODE] Reduced samples/epochs for debugging")
         h1 = experiment1_random_labels(n_epochs=2, n_samples=200)
