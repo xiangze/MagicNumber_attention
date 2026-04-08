@@ -5,7 +5,7 @@ ALBERTカオス実験スクリプト
   Exp1: ランダムラベル訓練 → 訓練誤差→0, 汎化誤差→最大, λ<0 の確認
   Exp2: Token Collapse誘導 → softmax温度を下げてλ≪0を確認
   Exp3: Edge of Chaos探索 → 学習率スキャンでλ≈0となるepochと汎化誤差の関係
-
+  Exp4: 
 依存ライブラリ:
   pip install torch transformers datasets numpy matplotlib tqdm
 """
@@ -16,6 +16,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from copy import deepcopy
 from tqdm import tqdm
+import argparse
 
 from transformers import AlbertForSequenceClassification, AlbertTokenizer
 from torch.utils.data import DataLoader, TensorDataset, random_split
@@ -25,6 +26,20 @@ import plotly.express as px
 # -------------------------------------------------------------------
 # 共通ユーティリティ
 # -------------------------------------------------------------------
+def dprint(s,fp):
+    print(s)
+    if(type(fp)==list):
+        for f in fp:
+            print(s,file=f)
+    elif(fp==None):
+        print(s)
+    else:   
+        print(s,file=fp)
+
+def banner(s,num=60):
+    print("\n" + "="*num)
+    print(s)
+    print("="*num)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "albert-base-v2"
@@ -137,16 +152,10 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4, layer_indi
 
 # -------------------------------------------------------------------
 # Exp1: ランダムラベル訓練
+# ランダムラベルでALBERTを訓練し,訓練誤差・汎化誤差・Lyapunov指数の推移を記録する。
 # -------------------------------------------------------------------
-
 def experiment1_random_labels(n_epochs=5, n_samples=1000):
-    """
-    ランダムラベルでALBERTを訓練し、
-    訓練誤差・汎化誤差・Lyapunov指数の推移を記録する。
-    """
-    print("\n" + "="*60)
-    print("Exp1: Random Label Training")
-    print("="*60)
+    banner("Exp1: Random Label Training")
 
     tokenizer = AlbertTokenizer.from_pretrained(MODEL_NAME)
     input_ids, attention_masks, true_labels = load_sst2_tokenized(tokenizer, n_samples)
@@ -160,9 +169,7 @@ def experiment1_random_labels(n_epochs=5, n_samples=1000):
     # 評価には真のラベルを使う（汎化誤差を測定するため）
     _, val_loader_true = make_dataloaders(input_ids, attention_masks, true_labels)
 
-    model = AlbertForSequenceClassification.from_pretrained(
-        MODEL_NAME, num_labels=NUM_LABELS
-    ).to(DEVICE)
+    model = AlbertForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS ).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=2e-5)
 
     history = {"train_loss": [], "val_acc_random": [], "val_acc_true": [], "lyapunov": []}
@@ -215,7 +222,7 @@ def evaluate_accuracy(model, dataloader):
             total   += len(lbl)
     return correct / total
 
-def plot_experiment1(history, n_epochs):
+def plot_experiment1(history, n_epochs,imgdir="img/"):
     epochs = range(1, n_epochs + 1)
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
 
@@ -231,14 +238,13 @@ def plot_experiment1(history, n_epochs):
     pl._ref_hline(axes[2], 0.0, "λ=0 (Edge of Chaos)")
     pl._set_ax(axes[2], "Lyapunov Exponent λ", "Epoch", "λ", legend=True)
 
-    pl._save_fig(fig, "exp1_random_labels.png",
+    pl._save_fig(fig, f"{imgdir}/exp1_random_labels.png",
               "Exp1: Random Label Training\n"
               "Hypothesis: λ<0 (stable) while generalization error remains high")
 
 # -------------------------------------------------------------------
 # Exp2: Token Collapse の誘導（softmax温度操作）
 # -------------------------------------------------------------------
-
 class PatchedAlbertAttention(nn.Module):
     """
     元のAlbert Attention をラップし、softmaxに温度パラメータを適用する。
@@ -264,7 +270,6 @@ class PatchedAlbertAttention(nn.Module):
         with TemperaturePatch(self.attn, self.temperature):
             return self.attn(hidden_states, attention_mask, head_mask, output_attentions)
 
-
 class TemperaturePatch:
     """AttentionのQuery出力をscaleするcontext manager"""
     def __init__(self, attn_module, temperature):
@@ -284,10 +289,8 @@ class TemperaturePatch:
         # パッチを元に戻す（簡易実装のためリセット）
         self.attn.attention.query.forward = (
             self.attn.attention.query.__class__.forward.__get__(
-                self.attn.attention.query
-            )
+                self.attn.attention.query)
         )
-
 
 def measure_token_diversity(model, input_ids, attention_mask):
     """
@@ -328,24 +331,13 @@ def measure_token_diversity(model, input_ids, attention_mask):
     return effective_ranks
 
 
-def experiment2_token_collapse(temperatures=None, n_samples=200):
-    """
-    softmax温度を変えてToken Collapseを誘導し、
-    Effective Rank と Lyapunov指数への影響を確認する。
-    """
-    print("\n" + "="*60)
-    print("Exp2: Token Collapse via Temperature Manipulation")
-    print("="*60)
-
-    if temperatures is None:
-        temperatures = [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
-
+def experiment2_token_collapse(temperatures=[0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0], n_samples=200,imgdir="img/"):
+    banner("Exp2: softmax温度を変えてToken Collapseを誘導し、    Effective Rank と Lyapunov指数への影響を確認する。")
     tokenizer = AlbertTokenizer.from_pretrained(MODEL_NAME)
     input_ids, attention_masks, _ = load_sst2_tokenized(tokenizer, n_samples)
     # 少量サンプルで実験
     input_ids      = input_ids[:8]
     attention_masks = attention_masks[:8]
-
     results = {"temperature": [], "eff_rank_mean": [], "eff_rank_last": [], "lyapunov": []}
 
     for T in temperatures:
@@ -377,10 +369,10 @@ def experiment2_token_collapse(temperatures=None, n_samples=200):
 
         print(f"eff_rank(mean)={mean_rank:.2f} | eff_rank(last_layer)={last_rank:.2f} | λ={lya:.4f}")
 
-    plot_experiment2(results)
+    plot_experiment2(results,imgdir)
     return results
 
-def plot_experiment2(results):
+def plot_experiment2(results,imgdir="img/"):
     T_vals = results["temperature"]
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
@@ -396,27 +388,15 @@ def plot_experiment2(results):
     pl._set_ax(axes[1], "Lyapunov Exponent vs Temperature",
             "Temperature (log scale)", "λ", legend=True)
 
-    pl._save_fig(fig, "exp2_token_collapse.png",
+    pl._save_fig(fig, f"{imgdir}/exp2_token_collapse.png",
               "Exp2: Token Collapse via Softmax Temperature\n"
               "Hypothesis: Low T → rank collapse → λ≪0")
     
-
 # -------------------------------------------------------------------
 # Exp3: Edge of Chaos 探索（学習率スキャン）
 # -------------------------------------------------------------------
-
-def experiment3_edge_of_chaos(lr_list=None, n_epochs=3, n_samples=1000):
-    """
-    学習率を変えてトレーニングし、
-    「λ≈0のedge of chaos epoch」と「汎化誤差」の対応を確認する。
-    反例の探索：λ≈0でも汎化誤差が高い場合があるかを調べる。
-    """
-    print("\n" + "="*60)
-    print("Exp3: Edge of Chaos Search via Learning Rate Scan")
-    print("="*60)
-
-    if lr_list is None:
-        lr_list = [1e-6, 5e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
+def experiment3_edge_of_chaos(lr_list=[1e-6, 5e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3], n_epochs=3, n_samples=1000,imgdir="img"):
+    banner("Exp3: Edge of Chaos (λ≈0) Search via Learning Rate Scan, 反例の探索：λ≈0でも汎化誤差が高い場合があるかを調べる。")
 
     tokenizer = AlbertTokenizer.from_pretrained(MODEL_NAME)
     input_ids, attention_masks, true_labels = load_sst2_tokenized(tokenizer, n_samples)
@@ -449,15 +429,11 @@ def experiment3_edge_of_chaos(lr_list=None, n_epochs=3, n_samples=1000):
 
         all_results[lr] = epoch_records
 
-    plot_experiment3(all_results, lr_list, n_epochs)
+    plot_experiment3(all_results, lr_list, n_epochs,imgdir)
     analyze_edge_of_chaos_counterexamples(all_results)
     return all_results
 
-
 def analyze_edge_of_chaos_counterexamples(all_results, lambda_threshold=0.05):
-    """
-    「λ≈0 かつ 汎化誤差が高い」という反例候補を検出する。
-    """
     print("\n  --- Counterexample Analysis (λ≈0 but high generalization error) ---")
     found = False
     for lr, records in all_results.items():
@@ -471,7 +447,7 @@ def analyze_edge_of_chaos_counterexamples(all_results, lambda_threshold=0.05):
         print("  No clear counterexamples found with current settings. "
               "Try random labels + edge of chaos scan (Exp1 × Exp3 combination).")
 
-def plot_experiment3(all_results, lr_list, n_epochs):
+def plot_experiment3(all_results, lr_list, n_epochs,imgdir="img/"):
     epochs = range(1, n_epochs + 1)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     colors = [plt.get_cmap("viridis")(i / len(lr_list)) for i in range(len(lr_list))]
@@ -489,26 +465,19 @@ def plot_experiment3(all_results, lr_list, n_epochs):
     pl._set_ax(axes[1], "Validation Accuracy per Epoch", "Epoch", "Accuracy",
             legend=True, legend_kw={"fontsize": 7})
 
-    pl._save_fig(fig, "exp3_edge_of_chaos.png",
+    pl._save_fig(fig, f"{imgdir}/exp3_edge_of_chaos.png",
               "Exp3: Edge of Chaos Search via Learning Rate Scan\n"
               "Key question: Is λ≈0 sufficient for good generalization?")
 
- 
-
-# -------------------------------------------------------------------
+ # -------------------------------------------------------------------
 # Exp1 × Exp3 複合実験：ランダムラベル + 学習率スキャン
 # （最重要反例：λ≈0 かつ 汎化誤差=最大 を意図的に作る）
 # -------------------------------------------------------------------
-
-def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
-    """
-    ランダムラベルで訓練しつつ学習率を調整することで、
-    Edge of Chaos (λ≈0) に近い状態で汎化誤差が最大になる反例を作る。
+def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500,imgdir="img"):
+    banner("""
+    ランダムラベルで訓練しつつ学習率を調整することで、Edge of Chaos (λ≈0) に近い状態で汎化誤差が最大になる反例を作る。
     これがEdge of Chaos論文への最も直接的な反例。
-    """
-    print("\n" + "="*60)
-    print("Combined: Random Labels + LR Scan (Direct Counterexample)")
-    print("="*60)
+    """)
 
     if lr_list is None:
         lr_list = [1e-5, 3e-5, 1e-4]
@@ -559,7 +528,7 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
     pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
                "(Trained on random labels)",
             "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
-    pl._save_fig(fig, "exp_combined_counterexample.png", "")
+    pl._save_fig(fig, f"{imgdir}/exp_combined_counterexample.png", "")
 
 
     # λ と val_acc の散布図
@@ -579,7 +548,7 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
                  "(Trained on random labels)")
     ax.legend()
     plt.tight_layout()
-    plt.savefig("exp_combined_counterexample.png", dpi=120, bbox_inches="tight")
+    plt.savefig(f"{imgdir}/exp_combined_counterexample.png", dpi=120, bbox_inches="tight")
     print("  → Saved: exp_combined_counterexample.png")
     plt.close()
 
@@ -590,22 +559,52 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500):
 # メイン実行
 # -------------------------------------------------------------------
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="ALBERT Chaos Experiments")
+    parser.add_argument("--test", action="store_true")
+    parser.add_argument("--num", type=int,default=0,help="exp. num.")
+
+    args = parser.parse_args()
     print("ALBERT Chaos Experiments")
     print(f"Device: {DEVICE}")
     print("NOTE: Full runs require GPU. Reduce n_samples/n_epochs for quick testing.\n")
-    # --- クイックテスト用設定（本番は値を増やす） ---
-    QUICK = True  # Falseにすると本格実験
-    if QUICK:
+    
+    # 1: ランダムラベル訓練
+    #   ランダムラベルでALBERTを訓練し,訓練誤差・汎化誤差・Lyapunov指数の推移を記録する。
+    # 2. softmax温度を変えてToken Collapseを誘導し、Effective Rank と Lyapunov指数への影響を確認する。
+    # 3. 学習率を変えてトレーニングし、「λ≈0のedge of chaos epoch」と「汎化誤差」の対応を確認する。
+    # 3. 反例の探索：λ≈0でも汎化誤差が高い場合があるかを調べる。
+    # 4. ランダムラベルで訓練しつつ学習率を調整することで、Edge of Chaos (λ≈0) に近い状態で汎化誤差が最大になる反例を作る。
+    # これがEdge of Chaos論文への最も直接的な反例。
+
+    if args.test: # クイックテスト用設定（本番は値を増やす） Falseにすると本格実験
         print("[QUICK MODE] Reduced samples/epochs for debugging")
-        h1 = experiment1_random_labels(n_epochs=2, n_samples=200)
-        r2 = experiment2_token_collapse(temperatures=[0.1, 0.5, 1.0, 5.0], n_samples=100)
-        r3 = experiment3_edge_of_chaos(lr_list=[1e-5, 1e-4, 1e-3], n_epochs=2, n_samples=200)
-        rc = experiment_combined_counterexample(lr_list=[1e-5, 1e-4], n_epochs=2, n_samples=200)
+        if(args.num==1):
+            h1 = experiment1_random_labels(n_epochs=2, n_samples=200)
+        elif(args.num==2):
+            r2 = experiment2_token_collapse(temperatures=[0.1, 0.5, 1.0, 5.0], n_samples=100)
+        elif(args.num==3):        
+            r3 = experiment3_edge_of_chaos(lr_list=[1e-5, 1e-4, 1e-3], n_epochs=2, n_samples=200)
+        elif(args.num==4):        
+            rc = experiment_combined_counterexample(lr_list=[1e-5, 1e-4], n_epochs=2, n_samples=200)
+        else:
+            h1 = experiment1_random_labels(n_epochs=2, n_samples=200)
+            r2 = experiment2_token_collapse(temperatures=[0.1, 0.5, 1.0, 5.0], n_samples=100)
+            r3 = experiment3_edge_of_chaos(lr_list=[1e-5, 1e-4, 1e-3], n_epochs=2, n_samples=200)
+            rc = experiment_combined_counterexample(lr_list=[1e-5, 1e-4], n_epochs=2, n_samples=200)
     else:
         print("[FULL MODE]")
-        h1 = experiment1_random_labels(n_epochs=5, n_samples=2000)
-        r2 = experiment2_token_collapse()
-        r3 = experiment3_edge_of_chaos()
-        rc = experiment_combined_counterexample()
+        if(args.num==1):
+            h1 = experiment1_random_labels(n_epochs=2, n_samples=200)
+        elif(args.num==2):
+            r2 = experiment2_token_collapse()
+        elif(args.num==3):        
+            r3 = experiment3_edge_of_chaos()
+        elif(args.num==4):        
+            rc = experiment_combined_counterexample()
+        else:
+            h1 = experiment1_random_labels(n_epochs=5, n_samples=2000)
+            r2 = experiment2_token_collapse()
+            r3 = experiment3_edge_of_chaos()
+            rc = experiment_combined_counterexample()
 
     print("\nAll experiments complete. Check PNG files for results.")
