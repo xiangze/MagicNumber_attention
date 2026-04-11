@@ -430,10 +430,10 @@ def experiment3_edge_of_chaos(lr_list=[1e-6, 5e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
         all_results[lr] = epoch_records
 
     plot_experiment3(all_results, lr_list, n_epochs,imgdir)
-    analyze_edge_of_chaos_counterexamples(all_results)
+    print_edge_of_chaos_counterexamples(all_results)
     return all_results
 
-def analyze_edge_of_chaos_counterexamples(all_results, lambda_threshold=0.05):
+def print_edge_of_chaos_counterexamples(all_results, lambda_threshold=0.05):
     print("\n  --- Counterexample Analysis (λ≈0 but high generalization error) ---")
     found = False
     for lr, records in all_results.items():
@@ -469,19 +469,32 @@ def plot_experiment3(all_results, lr_list, n_epochs,imgdir="img/"):
               "Exp3: Edge of Chaos Search via Learning Rate Scan\n"
               "Key question: Is λ≈0 sufficient for good generalization?")
 
+def scatter(scatter_data,lr_list,imgdir, figsize=(8, 6),cmap="Setl"):
+    fig, ax = plt.subplots(figsize)
+    cmap = plt.get_cmap(cmap)
+    for i, lr in enumerate(lr_list):
+        mask = [s == lr for s in scatter_data["lr"]]
+        idx  = [j for j, m in enumerate(mask) if m]
+        ax.scatter([scatter_data["lyapunov"][j] for j in idx],
+                   [scatter_data["val_acc"][j]  for j in idx],
+                   label=f"lr={lr:.0e}", s=80, color=cmap(i))
+
+    pl._ref_vline(ax, 0.0, "λ=0 (Edge of Chaos)")
+    pl._ref_hline(ax, 0.5, "chance level")
+    pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
+               "(Trained on random labels)",
+            "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
+    pl._save_fig(fig, f"{imgdir}/exp_combined_counterexample.png", "")
+
  # -------------------------------------------------------------------
 # Exp1 × Exp3 複合実験：ランダムラベル + 学習率スキャン
 # （最重要反例：λ≈0 かつ 汎化誤差=最大 を意図的に作る）
 # -------------------------------------------------------------------
-def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500,imgdir="img"):
+def experiment_combined_counterexample(lr_list=[1e-5, 3e-5, 1e-4], n_epochs=3, n_samples=500,imgdir="img/"):
     banner("""
     ランダムラベルで訓練しつつ学習率を調整することで、Edge of Chaos (λ≈0) に近い状態で汎化誤差が最大になる反例を作る。
     これがEdge of Chaos論文への最も直接的な反例。
     """)
-
-    if lr_list is None:
-        lr_list = [1e-5, 3e-5, 1e-4]
-
     tokenizer = AlbertTokenizer.from_pretrained(MODEL_NAME)
     input_ids, attention_masks, true_labels = load_sst2_tokenized(tokenizer, n_samples)
     random_labels = torch.randint(0, NUM_LABELS, (len(true_labels),))
@@ -514,46 +527,8 @@ def experiment_combined_counterexample(lr_list=None, n_epochs=3, n_samples=500,i
             scatter_data["lr"].append(lr)
             print(f"    Epoch {epoch+1}: λ={lya:.4f} | val_acc(true)={val_acc:.3f}")
    # λ vs val_acc 散布図
-    fig, ax = plt.subplots(figsize=(8, 6))
-    cmap = plt.get_cmap("Set1")
-    for i, lr in enumerate(lr_list):
-        mask = [s == lr for s in scatter_data["lr"]]
-        idx  = [j for j, m in enumerate(mask) if m]
-        ax.scatter([scatter_data["lyapunov"][j] for j in idx],
-                   [scatter_data["val_acc"][j]  for j in idx],
-                   label=f"lr={lr:.0e}", s=80, color=cmap(i))
-
-    pl._ref_vline(ax, 0.0, "λ=0 (Edge of Chaos)")
-    pl._ref_hline(ax, 0.5, "chance level")
-    pl._set_ax(ax, "Direct Counterexample: λ≈0 with Worst Generalization\n"
-               "(Trained on random labels)",
-            "Lyapunov Exponent λ", "Validation Accuracy (true labels)", legend=True)
-    pl._save_fig(fig, f"{imgdir}/exp_combined_counterexample.png", "")
-
-
-    # λ と val_acc の散布図
-    fig, ax = plt.subplots(figsize=(8, 6))
-    cmap = plt.get_cmap("Set1")
-    for i, lr in enumerate(lr_list):
-        mask = [s == lr for s in scatter_data["lr"]]
-        xs = [scatter_data["lyapunov"][j] for j in range(len(mask)) if mask[j]]
-        ys = [scatter_data["val_acc"][j]  for j in range(len(mask)) if mask[j]]
-        ax.scatter(xs, ys, label=f"lr={lr:.0e}", s=80, color=cmap(i))
-
-    ax.axvline(0.0, color="black", linestyle="--", label="λ=0 (Edge of Chaos)")
-    ax.axhline(0.5, color="gray",  linestyle="--", label="chance level")
-    ax.set_xlabel("Lyapunov Exponent λ")
-    ax.set_ylabel("Validation Accuracy (true labels)")
-    ax.set_title("Direct Counterexample: λ≈0 with Worst Generalization\n"
-                 "(Trained on random labels)")
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(f"{imgdir}/exp_combined_counterexample.png", dpi=120, bbox_inches="tight")
-    print("  → Saved: exp_combined_counterexample.png")
-    plt.close()
-
+    scatter(scatter_data,lr_list,imgdir=f"{imgdir}", figsize=(8, 6),cmap="Setl")
     return scatter_data
-
 
 # -------------------------------------------------------------------
 # メイン実行
@@ -600,7 +575,7 @@ if __name__ == "__main__":
         elif(args.num==3):        
             r3 = experiment3_edge_of_chaos()
         elif(args.num==4):        
-            rc = experiment_combined_counterexample()
+            rc = experiment_combined_counterexample(lr_list=[3e-5,5e-5,7e-5,9e-5, 1e-4])
         else:
             h1 = experiment1_random_labels(n_epochs=5, n_samples=2000)
             r2 = experiment2_token_collapse()
