@@ -46,6 +46,7 @@ from transformers import AlbertForSequenceClassification, AlbertTokenizer
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from datasets import load_dataset
 import plots_plotly as pl
+from util import dprint, banner
 # ─────────────────────────────────────────────
 # 設定
 # ─────────────────────────────────────────────
@@ -108,16 +109,12 @@ def hessian_vector_product(loss, params, vector):
     # 二階微分
     hvp = torch.autograd.grad(grad_v, params,
                                retain_graph=True, allow_unused=True)
-    hvp = [h if h is not None else torch.zeros_like(p)
-           for h, p in zip(hvp, params)]
-    return hvp
-
+    return [h if h is not None else torch.zeros_like(p) for h, p in zip(hvp, params)]
 
 def get_loss_on_batch(model, batch, device):
     """評価用バッチで損失を計算（グラフ保持）"""
     ids, mask, lbl = [b.to(device) for b in batch]
     return model(input_ids=ids, attention_mask=mask, labels=lbl).loss
-
 
 # ─────────────────────────────────────────────
 # Lanczosによる固有値近似
@@ -250,12 +247,23 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4):
         log_rates = []
         h, hp = emb, emb_p
         encoder = model.albert.encoder
+        hidden = encoder.embedding_hidden_mapping_in(emb)
+        hidden_pert = encoder.embedding_hidden_mapping_in(emb_p)
+
         ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
 
         for _ in range(encoder.config.num_hidden_layers):
             layer = encoder.albert_layer_groups[0].albert_layers[0]
-            out  = layer(h,  ext_mask)[0]
-            outp = layer(hp, ext_mask)[0]
+            # 拡張マスクを作成
+            ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
+            try:
+                out = layer(hidden,ext_mask)[0]
+            except  Exception as e:
+                print(e)
+                print("attention_mask",attention_mask.shape, input_ids.shape)
+                print("hidden",hidden.shape,"mask",ext_mask.shape)
+                exit()
+            outp = layer(hidden_pert, ext_mask)[0]
 
             d_before = (hp - h).norm(dim=-1).mean().item()
             d_after  = (outp - out).norm(dim=-1).mean().item()
@@ -315,7 +323,6 @@ class ExperimentResult:
 # ─────────────────────────────────────────────
 # Exp A: 正規訓練 vs ランダムラベル
 # ─────────────────────────────────────────────
-
 def experiment_A(n_samples=600, n_epochs=3, lr=2e-5):
     """
     正規訓練モデルとランダムラベル訓練モデルを比較。
@@ -393,7 +400,6 @@ def plot_A(results):
 # ─────────────────────────────────────────────
 # Exp B: バッチサイズ変化 → Sharp vs Flat
 # ─────────────────────────────────────────────
-
 def experiment_B(batch_sizes=None, n_samples=800, n_epochs=3, lr=2e-5):
     """
     Keskar et al. 2017 の「大バッチ→sharp」「小バッチ→flat」を
@@ -470,7 +476,6 @@ def plot_B(results):
 #   軸: (学習率, flatness_ratio, Lyapunov指数)
 #   色: 汎化誤差
 # ─────────────────────────────────────────────
-
 def experiment_C(lr_list=None, n_samples=600, n_epochs=3):
     """
     学習率 × Flatness Ratio × Lyapunov指数 の3次元空間で
@@ -643,7 +648,6 @@ def analyze_predictive_power(all_results):
 # ─────────────────────────────────────────────
 # Bonus: Flatness Ratio の閾値 τ 感度分析
 # ─────────────────────────────────────────────
-
 def analyze_threshold_sensitivity(result: ExperimentResult,
                                    tau_range=None):
     """
@@ -678,7 +682,6 @@ def analyze_threshold_sensitivity(result: ExperimentResult,
 # ─────────────────────────────────────────────
 # メイン
 # ─────────────────────────────────────────────
-
 if __name__ == "__main__":
     print("Flat Minimum / Zero-Eigenvalue Generalization Experiments")
     print(f"Device: {DEVICE}")
