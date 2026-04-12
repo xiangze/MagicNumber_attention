@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import sys
+import matplotlib.cm as cm
 
 def setspectrum(data,spectrum,k,kk):
     if not k in data:
@@ -30,28 +31,35 @@ def feed(lines,tr=False):
             data=setspectrum(data,spectrum,k,kk)
     return data
 
-def plot(filename):
-    beta=filename.split("_")[1]
+def _plot(data,beta,fname_tr="img/spectrum",debug=False):
+    for k,datak in data.items():
+        fname=f"{fname_tr}_{k}"
+        plt.figure()
+        for j,(kk,specs) in enumerate(datak.items()):
+            for s in specs:
+                plt.plot(s,label=kk,color=cm.hsv(j/len(specs[0])))
+        plt.legend()
+        plt.grid()
+        plt.title(f"lyapunov spectrum {k}, beta {beta}")
+        plt.savefig(fname+".png")
+        plt.close()
+
+def plot(filename,beta=0,debug=False):
+    if(beta==0):
+        beta=filename.split("_")[1]
     with open(filename) as fp:
         lines = fp.read().splitlines()
 
-    for tr in [False,True]:
-        data=feed(lines,tr)
-        for k,datak in data.items():
-            plt.figure()
-            for kk,specs in datak.items():
-               # print(kk,len(specs),len(specs[0]))
-                for s in  specs:
-                    plt.plot(s,label=kk)
-            plt.legend()
-            plt.grid()
-            plt.title(f"lyapunov spectrum {k}, {beta}")
-            fname=f"img/spectrum_{k}_{beta}"
-            if(tr):
-                fname+="_tr"
-            plt.savefig(fname+".png")
-            plt.clf()
+    data=feed(lines,tr=False)
+    fname=f"img/spectrum_{beta}"
+    _plot(data,beta,fname,debug)
+
+def plot_all():
+    for beta in [1.4,2.0]:
+        filename=f"result/lyap_beta{beta}_spectrum.csv"
+        plot(filename,beta,True)
 
 if __name__ == "__main__":
-    filename=sys.argv[1]
-    plot(filename)
+    #filename=sys.argv[1]
+    plot_all()
+    #plot(filename)
