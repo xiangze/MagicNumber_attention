@@ -8,6 +8,7 @@ import torch
 import torch.autograd.functional as AF
 import matplotlib.pyplot as plt
 import argparse
+import src.plots_spectrum as ps
 
 def dprint(s,fp):
     print(s)
@@ -207,7 +208,8 @@ def calc_lyaps(num=1,func=FNN,filename="lyap",beta=2):
     filename=filename+f"_beta{beta}"
     with open(filename+"_spectrum.csv","w") as fpp:
         with open(filename+".csv","w") as fp:
-            dprint("N,M,attentionLnum,FNNnum,max lyap,min lyap",[fp,fpp])        
+            dprint("N,M,attentionLnum,FNNnum,max lyap,min lyap",fp)        
+            dprint("N,M,attentionLnum,FNNnum,max lyaps",fpp)        
             for N in [2,3,5,10]:
                 for M in [3,5,10]:
                     W=r01((N,N))
@@ -216,10 +218,12 @@ def calc_lyaps(num=1,func=FNN,filename="lyap",beta=2):
                             for n in range(num):
                                 th=r01(M)
                                 x=r01((N,M))
-                                x,lyap=calc_lyap(W,x,func,M,N,L,attentionLnum,FNNnum,beta=beta,th=th)
+                                x,lyap=calc_lyap(W,x,func,calcJ_autograd,M,N,L,attentionLnum,FNNnum,beta=beta,th=th)
                                 dprint(f"{N},{M},{attentionLnum},{FNNnum},{torch.max(lyap)},{torch.min(lyap)}",fp)
-                                print(f"{N},{M},{attentionLnum},{FNNnum},{lyap}",file=fpp)
+                                lyap=" ".join([ f"{lyap[i]}"for i in range(lyap.shape[0]) ])
+                                print(f"{N},{M},{attentionLnum},{FNNnum},[{lyap}]",file=fpp)
     plot_lyaps(filename+".csv", filename+".png")
+    ps.plot(filename+".csv")
 
 # ============================================================
 # 動作確認

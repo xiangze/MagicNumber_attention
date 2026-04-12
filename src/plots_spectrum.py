@@ -41,6 +41,8 @@ def _plot(data,beta,fname_tr="img/spectrum",debug=False):
         plt.legend()
         plt.grid()
         plt.title(f"lyapunov spectrum {k}, beta {beta}")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+        plt.tight_layout() # 凡例が切れないようにする
         plt.savefig(fname+".png")
         plt.close()
 
@@ -51,15 +53,15 @@ def plot(filename,beta=0,debug=False):
         lines = fp.read().splitlines()
 
     data=feed(lines,tr=False)
-    fname=f"img/spectrum_{beta}"
+    fname=f"img/spectrum/spectrum_{beta}"
     _plot(data,beta,fname,debug)
 
-def plot_all():
+def plot_all(resnet="_Resnet"):
     for beta in [1.4,2.0]:
-        filename=f"result/lyap_beta{beta}_spectrum.csv"
+        filename=f"result/lyap_{resnet}beta{beta}_spectrum.csv"
         plot(filename,beta,True)
 
 if __name__ == "__main__":
-    #filename=sys.argv[1]
-    plot_all()
+    plot_all(resnet="")
+    #filename=f"result/lyap_Resnet_beta1.4_spectrum.csv"
     #plot(filename)

@@ -23,23 +23,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from datasets import load_dataset
 import plots_plotly as pl
 import plotly.express as px
-# -------------------------------------------------------------------
-# 共通ユーティリティ
-# -------------------------------------------------------------------
-def dprint(s,fp):
-    print(s)
-    if(type(fp)==list):
-        for f in fp:
-            print(s,file=f)
-    elif(fp==None):
-        print(s)
-    else:   
-        print(s,file=fp)
-
-def banner(s,num=60):
-    print("\n" + "="*num)
-    print(s)
-    print("="*num)
+from util import dprint, banner
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "albert-base-v2"
@@ -119,12 +103,11 @@ def estimate_lyapunov(model, input_ids, attention_mask, epsilon=1e-4, layer_indi
         encoder = model.albert.encoder
         hidden = encoder.embedding_hidden_mapping_in(emb_output)
         hidden_pert = encoder.embedding_hidden_mapping_in(emb_perturbed)
+        # 拡張マスクを作成
+        ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
 
         for layer_idx in range(encoder.config.num_hidden_layers):
             layer = encoder.albert_layer_groups[0].albert_layers[0]
-
-            # 拡張マスクを作成
-            ext_mask = model.albert.get_extended_attention_mask(attention_mask, input_ids.shape)
             try:
                 out_orig = layer(hidden,      ext_mask)[0]
             except  Exception as e:
