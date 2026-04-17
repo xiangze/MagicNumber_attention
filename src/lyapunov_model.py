@@ -40,14 +40,10 @@ import torch.nn as nn
 import torch.autograd.functional as AF
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
-try:
-    import torchvision
-    import torchvision.transforms as transforms
-    HAS_TORCHVISION = True
-except ImportError:
-    HAS_TORCHVISION = False
-
-
+import torchvision
+import torchvision.transforms as transforms
+HAS_TORCHVISION = True
+import itertools
 # ============================================================
 # 1. モデル定義
 # ============================================================
@@ -166,12 +162,19 @@ class AttentionFNNModel(nn.Module):
             (batch, N, M)     — シーケンスモード
             (N, M)            — 単一サンプル (リャプノフ計算用)
         """
-        single = (x.dim() == 2)
+    # 画像モード: 1D が単一、2D がバッチ
+        if self.embed is not None:
+            single = (x.dim() == 1)
+        # シーケンスモード: 2D が単一、3D がバッチ
+        else:
+            single = (x.dim() == 2)
+
         if single:
             x = x.unsqueeze(0)
 
         if self.embed is not None:
-            x = self.embed(x).reshape(x.size(0), self.n_input, self.n_seq)
+            x = self.embed(x)
+            x=x.reshape(x.size(0), self.n_input, self.n_seq)
 
         x   = torch.stack([self._apply_blocks(xi) for xi in x])
         out = self.head(self.drop(x.reshape(x.size(0), -1)))
@@ -186,8 +189,13 @@ class AttentionFNNModel(nn.Module):
 IMAGE_DATASETS = {
     "mnist":         ("MNIST",        1, 28, 28,  10),
     "fashion_mnist": ("FashionMNIST", 1, 28, 28,  10),
+    "kmnist":        ("KMNIST",       1, 28, 28,  10),
+    "emnist":        ("EMNIST",       1, 28, 28,  47),  # balanced split
+    "svhn":          ("SVHN",         3, 32, 32,  10),
     "cifar10":       ("CIFAR10",      3, 32, 32,  10),
     "cifar100":      ("CIFAR100",     3, 32, 32, 100),
+    "stl10":         ("STL10",        3, 96, 96,  10),
+    "eurosat":       ("EuroSAT",      3, 64, 64,  10),
 }
 
 LABEL_NAMES = {
@@ -211,8 +219,6 @@ TASK_DEFAULTS = {
 
 def load_image_dataset(name, data_root="./data", max_train=None, max_test=None):
     """torchvision からイメージデータセットを読み込む。"""
-    if not HAS_TORCHVISION:
-        raise ImportError("pip install torchvision が必要です")
 
     ds_name, C, H, W, n_classes = IMAGE_DATASETS[name]
     img_flat = C * H * W
@@ -514,7 +520,7 @@ def plot_results(history, lyap_result, task, save_prefix="lyap_result",
     path = f"{save_prefix}_summary.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     print(f"[保存] {path}")
-    plt.show()
+    #plt.show()
 
 def save_csv_results(lyap_result, save_prefix="lyap_result"):
     p1 = f"{save_prefix}_spectrum.csv"
@@ -563,21 +569,24 @@ def parse_args():
     p.add_argument("--lyap_samples", type=int, default=5)
     # 出力
     p.add_argument("--out_prefix", type=str, default="lyap_result")
-    p.add_argument("--device",     type=str, default="cpu")
+    p.add_argument("--device",     type=str, default="cuda")
     return p.parse_args()
 
+def makesuffix(args):
+    s=f"{args.task}_n{args.n_blocks}_at{args.attn_layers}_fnn{args.fnn_layers}_beta{args.beta}_dr{args.dropout}"
+    if(args.residual):
+        s+="_res"
+    return s
+    
 # ============================================================
 # 7. メイン
 # ============================================================
-def main():
-    args   = parse_args()
-    device = torch.device(args.device)
-
+def exec(args,device):
     # N, M の決定
     dN, dM = TASK_DEFAULTS[args.task]
     N = args.N if args.N is not None else dN
     M = args.M if args.M is not None else dM
-
+    suf=makesuffix(args)
     print("=" * 62)
     print(f"  タスク       : {args.task}")
     print(f"  N (tok dim)  : {N}   M (tok num): {M}")
@@ -631,6 +640,7 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  パラメータ数 : {n_params:,}")
     print(f"  総層数       : {args.n_blocks * (args.attn_layers + args.fnn_layers)}")
+    print(f"  model input as: {model.n_input*model.n_seq}")
 
     print("\n[3] 学習中...")
     history = train(model, train_loader, test_loader, epochs=args.epochs, lr=args.lr, device=device)
@@ -666,11 +676,31 @@ def main():
         print(f"  Kaplan-Yorke 次元 : {ki + cs[ki-1] / abs(sl[ki]):.2f}")
 
     print("\n[5] 保存・可視化...")
-    save_csv_results(lyap_result, save_prefix=args.out_prefix)
+
+    save_csv_results(lyap_result, save_prefix=args.out_prefix+suf)
     plot_results(history, lyap_result, task=args.task,
-                 save_prefix=args.out_prefix,
+                 save_prefix=args.out_prefix+suf,
                  conf_mat=conf_mat, label_names=label_names)
+
+def execs():
+    args   = parse_args()
+    device = torch.device(args.device)
+    for n_blocks ,attn_per_block ,fnn_per_block  ,residual ,beta  ,dropout  in itertools.product(
+        [1,2,4],[1,4,8],[1,4,8],[True,False],[1.4,2.0],[0.2]):
+        args.n_blocks=    n_blocks       
+        args.attn_layers= attn_per_block 
+        args.fnn_layers=  fnn_per_block  
+        args.residual=    residual       
+        args.beta   =    beta           
+        args.dropout =    dropout        
+        exec(args,device)
+    print("\n完了!")
+
+def main():
+    args   = parse_args()
+    device = torch.device(args.device)
+    exec(args,device)
     print("\n完了!")
 
 if __name__ == "__main__":
-    main()
+    execs()
