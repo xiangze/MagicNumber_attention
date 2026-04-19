@@ -696,6 +696,20 @@ def execs():
         exec(args,device)
     print("\n完了!")
 
+def execs2():
+    args   = parse_args()
+    device = torch.device(args.device)
+    for task,n_blocks ,attn_per_block ,fnn_per_block  ,residual in itertools.product(
+        ["mnist","fashion_mnist","cifar10"] ,[2,4],[0,2,4],[0,2,4],[True,False]):
+        args.task = task
+        args.n_blocks=    n_blocks       
+        args.attn_layers= attn_per_block 
+        args.fnn_layers=  fnn_per_block  
+        args.residual=    residual       
+        args.beta   =    2.0
+        exec(args,device)
+    print("\n完了!")
+
 def main():
     args   = parse_args()
     device = torch.device(args.device)
@@ -703,4 +717,4 @@ def main():
     print("\n完了!")
 
 if __name__ == "__main__":
-    execs()
+    execs2()

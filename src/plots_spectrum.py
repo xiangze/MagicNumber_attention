@@ -63,5 +63,3 @@ def plot_all(resnet="_Resnet"):
 
 if __name__ == "__main__":
     plot_all(resnet="")
-    #filename=f"result/lyap_Resnet_beta1.4_spectrum.csv"
-    #plot(filename)
